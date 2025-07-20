@@ -1,18 +1,15 @@
-import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/db"
 import { ObjectId } from "mongodb"
+import { type NextRequest, NextResponse } from "next/server"
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { db } = await connectToDatabase()
     const body = await request.json()
 
-    const updateData = {
-      ...body,
-      updatedAt: new Date(),
-    }
-
-    const result = await db.collection("chores").updateOne({ _id: new ObjectId(params.id) }, { $set: updateData })
+    const result = await db
+      .collection("chores")
+      .updateOne({ _id: new ObjectId(params.id) }, { $set: { ...body, updatedAt: new Date() } })
 
     if (result.matchedCount === 0) {
       return NextResponse.json({ error: "Chore not found" }, { status: 404 })

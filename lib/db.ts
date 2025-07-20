@@ -1,27 +1,37 @@
 import { MongoClient, type Db } from "mongodb"
 
-const uri =
-  process.env.MONGODB_URI ||
-  "mongodb+srv://sunilayer018:t2rPxxBklFTv9wsC@choreboard.jdwvnun.mongodb.net/?retryWrites=true&w=majority"
+const uri = process.env.MONGODB_URI
+const options = {}
 
 let client: MongoClient
-let db: Db
+let clientPromise: Promise<MongoClient>
 
-export async function connectToDatabase() {
-  if (db) {
-    return { client, db }
-  }
-
-  try {
-    client = new MongoClient(uri)
-    await client.connect()
-    db = client.db("choreboard")
-    console.log("✅ Connected to MongoDB!")
-    return { client, db }
-  } catch (error) {
-    console.error("❌ MongoDB connection error:", error)
-    throw error
-  }
+if (!process.env.MONGODB_URI) {
+  throw new Error("Please add your MongoDB URI to .env.local")
 }
 
-export { db }
+if (process.env.NODE_ENV === "development") {
+  // In development mode, use a global variable so that the value
+  // is preserved across module reloads caused by HMR (Hot Module Replacement).
+  const globalWithMongo = global as typeof globalThis & {
+    _mongoClientPromise?: Promise<MongoClient>
+  }
+
+  if (!globalWithMongo._mongoClientPromise) {
+    client = new MongoClient(uri!, options)
+    globalWithMongo._mongoClientPromise = client.connect()
+  }
+  clientPromise = globalWithMongo._mongoClientPromise
+} else {
+  // In production mode, it's best to not use a global variable.
+  client = new MongoClient(uri!, options)
+  clientPromise = client.connect()
+}
+
+export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db }> {
+  const client = await clientPromise
+  const db = client.db("choreboard")
+  return { client, db }
+}
+
+export default clientPromise

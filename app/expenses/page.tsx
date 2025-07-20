@@ -19,113 +19,68 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { VisualEffects } from "@/components/visual-effects"
 import { cn } from "@/lib/utils"
-import { addDays, addMonths, addWeeks, format } from "date-fns"
+import { format } from "date-fns"
 import {
-  AlertTriangle,
   CalendarIcon,
-  CheckCircle,
-  Clock,
+  CreditCard,
+  DollarSign,
   Edit,
   Filter,
   Plus,
-  Repeat,
+  Receipt,
   Search,
   Trash2,
+  TrendingUp,
   User,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
-interface Chore {
+interface Expense {
   id: string
   title: string
   description: string
-  assignedTo: string
-  dueDate: string
-  completed: boolean
-  priority: "low" | "medium" | "high"
+  amount: number
   category: string
-  completedAt?: string
-  completedBy?: string
+  paidBy: string
+  splitBetween: string[]
+  date: string
+  receipt?: string
   createdAt: string
   isRecurring?: boolean
-  recurringType?: "daily" | "weekly" | "monthly" | "custom"
-  recurringInterval?: number
-  nextDueDate?: string
-}
-
-interface MissedTask {
-  id: string
-  choreId: string
-  choreTitle: string
-  assignedTo: string
-  dueDate: string
-  missedDate: string
-  priority: "low" | "medium" | "high"
-  category: string
+  recurringType?: "monthly" | "weekly" | "yearly"
 }
 
 interface ChoreboardData {
-  chores: Chore[]
-  expenses: any[]
+  chores: any[]
+  expenses: Expense[]
   users: any[]
-  missedTasks?: MissedTask[]
 }
 
-export default function ChoresPage() {
+export default function ExpensesPage() {
   const [user, setUser] = useState<any | null>(null)
   const [data, setData] = useState<ChoreboardData>({ chores: [], expenses: [], users: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingChore, setEditingChore] = useState<Chore | null>(null)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [filterStatus, setFilterStatus] = useState("all")
-  const [filterPriority, setFilterPriority] = useState("all")
-  const [newChore, setNewChore] = useState({
+  const [filterCategory, setFilterCategory] = useState("all")
+  const [newExpense, setNewExpense] = useState({
     title: "",
     description: "",
-    assignedTo: "",
-    dueDate: new Date(),
-    priority: "medium" as "low" | "medium" | "high",
+    amount: 0,
     category: "general",
+    paidBy: "",
+    splitBetween: [] as string[],
+    date: new Date(),
     isRecurring: false,
-    recurringType: "weekly" as "daily" | "weekly" | "monthly" | "custom",
-    recurringInterval: 1,
+    recurringType: "monthly" as "monthly" | "weekly" | "yearly",
   })
   const router = useRouter()
-  const [externalTasks, setExternalTasks] = useState<{ title: string; completed: boolean }[]>([]);
-
-  const fetchExternalTasks = async () => {
-    const res = await fetch("http://localhost:3000/tasks");
-    const data = await res.json();
-    setExternalTasks(data);
-  };
-
-  useEffect(() => {
-    fetchExternalTasks();
-  }, []);
-
-  const handleMongoSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const input = e.currentTarget.elements.namedItem("taskTitle") as HTMLInputElement;
-    const title = input.value;
-    if (!title) return;
-
-    await fetch("http://localhost:3000/add-task", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, completed: false }),
-    });
-
-    input.value = "";
-    fetchExternalTasks();
-  };
-
 
   useEffect(() => {
     const currentUser = localStorage.getItem("currentUser")
@@ -142,109 +97,11 @@ export default function ChoresPage() {
     const choreboardData = localStorage.getItem(userDataKey)
     if (choreboardData) {
       const parsedData = JSON.parse(choreboardData)
-      // Initialize missedTasks if it doesn't exist
-      if (!parsedData.missedTasks) {
-        parsedData.missedTasks = []
-      }
       setData(parsedData)
-
-      // Check for overdue tasks and add to missed tasks
-      checkOverdueTasks(parsedData, userData)
-
-      // Check for recurring chores that need to be recreated
-      checkRecurringChores(parsedData, userData)
     }
 
     setIsLoading(false)
   }, [router])
-
-  const checkOverdueTasks = (currentData: ChoreboardData, currentUser: any) => {
-    const now = new Date()
-    const overdueTasks: MissedTask[] = []
-
-    currentData.chores.forEach((chore) => {
-      const dueDate = new Date(chore.dueDate)
-      const isOverdue = !chore.completed && dueDate < now
-
-      if (isOverdue) {
-        // Check if this missed task already exists
-        const existingMissedTask = currentData.missedTasks?.find((missed) => missed.choreId === chore.id)
-
-        if (!existingMissedTask) {
-          const missedTask: MissedTask = {
-            id: `missed_${chore.id}_${Date.now()}`,
-            choreId: chore.id,
-            choreTitle: chore.title,
-            assignedTo: chore.assignedTo,
-            dueDate: chore.dueDate,
-            missedDate: now.toISOString(),
-            priority: chore.priority,
-            category: chore.category,
-          }
-          overdueTasks.push(missedTask)
-        }
-      }
-    })
-
-    if (overdueTasks.length > 0) {
-      const updatedData = {
-        ...currentData,
-        missedTasks: [...(currentData.missedTasks || []), ...overdueTasks],
-      }
-      saveData(updatedData)
-    }
-  }
-
-  const checkRecurringChores = (currentData: ChoreboardData, currentUser: any) => {
-    const now = new Date()
-    const newChores: Chore[] = []
-
-    currentData.chores.forEach((chore) => {
-      if (chore.isRecurring && chore.completed && chore.nextDueDate) {
-        const nextDueDate = new Date(chore.nextDueDate)
-
-        // If the next due date has passed, create a new instance
-        if (nextDueDate <= now) {
-          const newChore: Chore = {
-            ...chore,
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            completed: false,
-            completedAt: undefined,
-            completedBy: undefined,
-            dueDate: chore.nextDueDate,
-            nextDueDate: calculateNextDueDate(chore.nextDueDate, chore.recurringType!, chore.recurringInterval!),
-            createdAt: now.toISOString(),
-          }
-          newChores.push(newChore)
-        }
-      }
-    })
-
-    if (newChores.length > 0) {
-      const updatedData = {
-        ...currentData,
-        chores: [...currentData.chores, ...newChores],
-      }
-      saveData(updatedData)
-    }
-  }
-
-  const calculateNextDueDate = (currentDueDate: string, recurringType: string, interval: number): string => {
-    const current = new Date(currentDueDate)
-
-    switch (recurringType) {
-      case "daily":
-        return addDays(current, interval).toISOString()
-      case "weekly":
-        return addWeeks(current, interval).toISOString()
-      case "monthly":
-        return addMonths(current, interval).toISOString()
-      case "custom":
-        return addDays(current, interval).toISOString()
-      default:
-        return addWeeks(current, 1).toISOString()
-    }
-  }
 
   const saveData = (newData: ChoreboardData) => {
     if (!user) return
@@ -254,138 +111,80 @@ export default function ChoresPage() {
     setData(newData)
   }
 
-  const handleAddChore = () => {
-    if (!newChore.title || !newChore.assignedTo) {
+  const handleAddExpense = () => {
+    if (!newExpense.title || !newExpense.paidBy || newExpense.amount <= 0) {
       toast.error("Please fill in all required fields")
       return
     }
 
-    const nextDueDate = newChore.isRecurring
-      ? calculateNextDueDate(newChore.dueDate.toISOString(), newChore.recurringType, newChore.recurringInterval)
-      : undefined
-
-    const chore: Chore = {
+    const expense: Expense = {
       id: Date.now().toString(),
-      title: newChore.title,
-      description: newChore.description,
-      assignedTo: newChore.assignedTo,
-      dueDate: newChore.dueDate.toISOString(),
-      completed: false,
-      priority: newChore.priority,
-      category: newChore.category,
+      title: newExpense.title,
+      description: newExpense.description,
+      amount: newExpense.amount,
+      category: newExpense.category,
+      paidBy: newExpense.paidBy,
+      splitBetween: newExpense.splitBetween.length > 0 ? newExpense.splitBetween : [newExpense.paidBy],
+      date: newExpense.date.toISOString(),
       createdAt: new Date().toISOString(),
-      isRecurring: newChore.isRecurring,
-      recurringType: newChore.isRecurring ? newChore.recurringType : undefined,
-      recurringInterval: newChore.isRecurring ? newChore.recurringInterval : undefined,
-      nextDueDate,
+      isRecurring: newExpense.isRecurring,
+      recurringType: newExpense.isRecurring ? newExpense.recurringType : undefined,
     }
 
     const newData = {
       ...data,
-      chores: [...data.chores, chore],
+      expenses: [...data.expenses, expense],
     }
 
     saveData(newData)
-    setNewChore({
+    setNewExpense({
       title: "",
       description: "",
-      assignedTo: "",
-      dueDate: new Date(),
-      priority: "medium",
+      amount: 0,
       category: "general",
+      paidBy: "",
+      splitBetween: [],
+      date: new Date(),
       isRecurring: false,
-      recurringType: "weekly",
-      recurringInterval: 1,
+      recurringType: "monthly",
     })
     setIsDialogOpen(false)
-    toast.success("Chore added successfully!")
+    toast.success("Expense added successfully!")
   }
 
-  const handleEditChore = () => {
-    if (!editingChore || !editingChore.title || !editingChore.assignedTo) {
+  const handleEditExpense = () => {
+    if (!editingExpense || !editingExpense.title || !editingExpense.paidBy || editingExpense.amount <= 0) {
       toast.error("Please fill in all required fields")
       return
     }
 
     const newData = {
       ...data,
-      chores: data.chores.map((chore) => (chore.id === editingChore.id ? editingChore : chore)),
+      expenses: data.expenses.map((expense) => (expense.id === editingExpense.id ? editingExpense : expense)),
     }
 
     saveData(newData)
-    setEditingChore(null)
-    toast.success("Chore updated successfully!")
+    setEditingExpense(null)
+    toast.success("Expense updated successfully!")
   }
 
-  const canMarkComplete = (chore: Chore) => {
-    // Admin can mark any chore complete, or the assigned user can mark their own chore complete
-    return user?.isAdmin || chore.assignedTo === user?.id
-  }
-
-  const handleCompleteChore = (choreId: string) => {
-    const chore = data.chores.find((c) => c.id === choreId)
-    if (!chore) return
-
-    if (!canMarkComplete(chore)) {
-      toast.error("You can only mark your own assigned chores as complete")
-      return
-    }
-
-    const wasCompleted = chore.completed
-    const updatedChore = {
-      ...chore,
-      completed: !chore.completed,
-      completedAt: !chore.completed ? new Date().toISOString() : undefined,
-      completedBy: !chore.completed ? user?.id : undefined,
-    }
-
-    // If marking as complete and it's recurring, set up next due date
-    if (!wasCompleted && chore.isRecurring) {
-      updatedChore.nextDueDate = calculateNextDueDate(chore.dueDate, chore.recurringType!, chore.recurringInterval!)
-    }
-
+  const handleDeleteExpense = (expenseId: string) => {
     const newData = {
       ...data,
-      chores: data.chores.map((c) => (c.id === choreId ? updatedChore : c)),
-    }
-
-    // If chore is being marked as complete, remove it from missed tasks
-    if (!wasCompleted) {
-      newData.missedTasks = data.missedTasks?.filter((missed) => missed.choreId !== choreId) || []
+      expenses: data.expenses.filter((expense) => expense.id !== expenseId),
     }
 
     saveData(newData)
-
-    if (!wasCompleted && chore.isRecurring) {
-      toast.success(`Chore completed! Next due: ${format(new Date(updatedChore.nextDueDate!), "PPP")}`)
-    } else {
-      toast.success(wasCompleted ? "Chore marked as incomplete" : "Chore completed! Great job!")
-    }
+    toast.success("Expense deleted successfully!")
   }
 
-  const handleDeleteChore = (choreId: string) => {
-    const newData = {
-      ...data,
-      chores: data.chores.filter((chore) => chore.id !== choreId),
-      // Also remove from missed tasks
-      missedTasks: data.missedTasks?.filter((missed) => missed.choreId !== choreId) || [],
-    }
-
-    saveData(newData)
-    toast.success("Chore deleted successfully!")
-  }
-
-  const filteredChores = data.chores.filter((chore) => {
+  const filteredExpenses = data.expenses.filter((expense) => {
     const matchesSearch =
-      chore.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      chore.description.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus =
-      filterStatus === "all" ||
-      (filterStatus === "completed" && chore.completed) ||
-      (filterStatus === "pending" && !chore.completed)
-    const matchesPriority = filterPriority === "all" || chore.priority === filterPriority
+      expense.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      expense.description.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCategory = filterCategory === "all" || expense.category === filterCategory
 
-    return matchesSearch && matchesStatus && matchesPriority
+    return matchesSearch && matchesCategory
   })
 
   const getUserName = (userId: string) => {
@@ -393,8 +192,25 @@ export default function ChoresPage() {
     return user ? user.name : "Unknown User"
   }
 
-  const isOverdue = (dueDate: string) => {
-    return new Date(dueDate) < new Date()
+  const getTotalExpenses = () => {
+    return data.expenses.reduce((total, expense) => total + expense.amount, 0)
+  }
+
+  const getMonthlyExpenses = () => {
+    const currentMonth = new Date().getMonth()
+    const currentYear = new Date().getFullYear()
+    return data.expenses
+      .filter((expense) => {
+        const expenseDate = new Date(expense.date)
+        return expenseDate.getMonth() === currentMonth && expenseDate.getFullYear() === currentYear
+      })
+      .reduce((total, expense) => total + expense.amount, 0)
+  }
+
+  const getUserExpenses = (userId: string) => {
+    return data.expenses
+      .filter((expense) => expense.paidBy === userId)
+      .reduce((total, expense) => total + expense.amount, 0)
   }
 
   if (isLoading) {
@@ -423,30 +239,30 @@ export default function ChoresPage() {
             {/* Page Header */}
             <div className="flex items-center justify-between mb-8 animate-slide-in">
               <div>
-                <h2 className="text-3xl font-bold text-foreground">Household Chores</h2>
-                <p className="text-muted-foreground">Manage and track your household tasks</p>
+                <h2 className="text-3xl font-bold text-foreground">Household Expenses</h2>
+                <p className="text-muted-foreground">Track and manage your shared expenses</p>
               </div>
 
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700">
+                  <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700">
                     <Plus className="w-4 h-4 mr-2" />
-                    Add Chore
+                    Add Expense
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[500px]">
                   <DialogHeader>
-                    <DialogTitle>Add New Chore</DialogTitle>
-                    <DialogDescription>Create a new household task and assign it to a member.</DialogDescription>
+                    <DialogTitle>Add New Expense</DialogTitle>
+                    <DialogDescription>Record a new household expense and split it among members.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="title">Title *</Label>
                       <Input
                         id="title"
-                        placeholder="Enter chore title"
-                        value={newChore.title}
-                        onChange={(e) => setNewChore({ ...newChore, title: e.target.value })}
+                        placeholder="Enter expense title"
+                        value={newExpense.title}
+                        onChange={(e) => setNewExpense({ ...newExpense, title: e.target.value })}
                       />
                     </div>
 
@@ -454,18 +270,55 @@ export default function ChoresPage() {
                       <Label htmlFor="description">Description</Label>
                       <Textarea
                         id="description"
-                        placeholder="Enter chore description"
-                        value={newChore.description}
-                        onChange={(e) => setNewChore({ ...newChore, description: e.target.value })}
+                        placeholder="Enter expense description"
+                        value={newExpense.description}
+                        onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
                       />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Assign To *</Label>
+                        <Label htmlFor="amount">Amount *</Label>
+                        <Input
+                          id="amount"
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={newExpense.amount || ""}
+                          onChange={(e) =>
+                            setNewExpense({ ...newExpense, amount: Number.parseFloat(e.target.value) || 0 })
+                          }
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Category</Label>
                         <Select
-                          value={newChore.assignedTo}
-                          onValueChange={(value) => setNewChore({ ...newChore, assignedTo: value })}
+                          value={newExpense.category}
+                          onValueChange={(value) => setNewExpense({ ...newExpense, category: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="general">General</SelectItem>
+                            <SelectItem value="groceries">Groceries</SelectItem>
+                            <SelectItem value="utilities">Utilities</SelectItem>
+                            <SelectItem value="rent">Rent</SelectItem>
+                            <SelectItem value="entertainment">Entertainment</SelectItem>
+                            <SelectItem value="transportation">Transportation</SelectItem>
+                            <SelectItem value="healthcare">Healthcare</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Paid By *</Label>
+                        <Select
+                          value={newExpense.paidBy}
+                          onValueChange={(value) => setNewExpense({ ...newExpense, paidBy: value })}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select member" />
@@ -481,138 +334,35 @@ export default function ChoresPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Priority</Label>
-                        <Select
-                          value={newChore.priority}
-                          onValueChange={(value: "low" | "medium" | "high") =>
-                            setNewChore({ ...newChore, priority: value })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Due Date</Label>
+                        <Label>Date</Label>
                         <Popover>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
                               className={cn(
                                 "w-full justify-start text-left font-normal",
-                                !newChore.dueDate && "text-muted-foreground",
+                                !newExpense.date && "text-muted-foreground",
                               )}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
-                              {newChore.dueDate ? format(newChore.dueDate, "PPP") : <span>Pick a date</span>}
+                              {newExpense.date ? format(newExpense.date, "PPP") : <span>Pick a date</span>}
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0">
                             <Calendar
                               mode="single"
-                              selected={newChore.dueDate}
-                              onSelect={(date) => date && setNewChore({ ...newChore, dueDate: date })}
+                              selected={newExpense.date}
+                              onSelect={(date) => date && setNewExpense({ ...newExpense, date: date })}
                               initialFocus
                             />
                           </PopoverContent>
                         </Popover>
                       </div>
-
-                      <div className="space-y-2">
-                        <Label>Category</Label>
-                        <Select
-                          value={newChore.category}
-                          onValueChange={(value) => setNewChore({ ...newChore, category: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="general">General</SelectItem>
-                            <SelectItem value="kitchen">Kitchen</SelectItem>
-                            <SelectItem value="bathroom">Bathroom</SelectItem>
-                            <SelectItem value="living-room">Living Room</SelectItem>
-                            <SelectItem value="bedroom">Bedroom</SelectItem>
-                            <SelectItem value="outdoor">Outdoor</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    {/* Recurring Options */}
-                    <div className="space-y-4 border-t pt-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label className="flex items-center gap-2">
-                            <Repeat className="w-4 h-4" />
-                            Recurring Chore
-                          </Label>
-                          <p className="text-sm text-muted-foreground">
-                            Automatically recreate this chore when completed
-                          </p>
-                        </div>
-                        <Switch
-                          checked={newChore.isRecurring}
-                          onCheckedChange={(checked) => setNewChore({ ...newChore, isRecurring: checked })}
-                        />
-                      </div>
-
-                      {newChore.isRecurring && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Repeat Every</Label>
-                            <Select
-                              value={newChore.recurringType}
-                              onValueChange={(value: "daily" | "weekly" | "monthly" | "custom") =>
-                                setNewChore({ ...newChore, recurringType: value })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="daily">Daily</SelectItem>
-                                <SelectItem value="weekly">Weekly</SelectItem>
-                                <SelectItem value="monthly">Monthly</SelectItem>
-                                <SelectItem value="custom">Custom Days</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Interval</Label>
-                            <Input
-                              type="number"
-                              min="1"
-                              value={newChore.recurringInterval}
-                              onChange={(e) =>
-                                setNewChore({ ...newChore, recurringInterval: Number.parseInt(e.target.value) || 1 })
-                              }
-                              placeholder="1"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              {newChore.recurringType === "daily" && `Every ${newChore.recurringInterval} day(s)`}
-                              {newChore.recurringType === "weekly" && `Every ${newChore.recurringInterval} week(s)`}
-                              {newChore.recurringType === "monthly" && `Every ${newChore.recurringInterval} month(s)`}
-                              {newChore.recurringType === "custom" && `Every ${newChore.recurringInterval} day(s)`}
-                            </p>
-                          </div>
-                        </div>
-                      )}
                     </div>
 
                     <div className="flex gap-2 pt-4">
-                      <Button onClick={handleAddChore} className="flex-1">
-                        Add Chore
+                      <Button onClick={handleAddExpense} className="flex-1">
+                        Add Expense
                       </Button>
                       <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                         Cancel
@@ -623,15 +373,54 @@ export default function ChoresPage() {
               </Dialog>
             </div>
 
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <Card className="animate-slide-in">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
+                      <p className="text-2xl font-bold">${getTotalExpenses().toFixed(2)}</p>
+                    </div>
+                    <DollarSign className="h-8 w-8 text-green-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="animate-slide-in" style={{ animationDelay: "0.1s" }}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">This Month</p>
+                      <p className="text-2xl font-bold">${getMonthlyExpenses().toFixed(2)}</p>
+                    </div>
+                    <TrendingUp className="h-8 w-8 text-blue-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="animate-slide-in" style={{ animationDelay: "0.2s" }}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Your Expenses</p>
+                      <p className="text-2xl font-bold">${getUserExpenses(user.id).toFixed(2)}</p>
+                    </div>
+                    <CreditCard className="h-8 w-8 text-purple-600" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Filters and Search */}
-            <Card className="mb-6 animate-slide-in" style={{ animationDelay: "0.1s" }}>
+            <Card className="mb-6 animate-slide-in" style={{ animationDelay: "0.3s" }}>
               <CardContent className="p-6">
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="flex-1">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                       <Input
-                        placeholder="Search chores..."
+                        placeholder="Search expenses..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="pl-10"
@@ -640,27 +429,19 @@ export default function ChoresPage() {
                   </div>
 
                   <div className="flex gap-2">
-                    <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <Select value={filterCategory} onValueChange={setFilterCategory}>
                       <SelectTrigger className="w-[140px]">
                         <Filter className="w-4 h-4 mr-2" />
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    <Select value={filterPriority} onValueChange={setFilterPriority}>
-                      <SelectTrigger className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Priority</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="groceries">Groceries</SelectItem>
+                        <SelectItem value="utilities">Utilities</SelectItem>
+                        <SelectItem value="rent">Rent</SelectItem>
+                        <SelectItem value="entertainment">Entertainment</SelectItem>
+                        <SelectItem value="transportation">Transportation</SelectItem>
+                        <SelectItem value="healthcare">Healthcare</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -668,307 +449,119 @@ export default function ChoresPage() {
               </CardContent>
             </Card>
 
-            {/* Chores List */}
+            {/* Expenses List */}
             <div className="space-y-4">
-              {filteredChores.length > 0 ? (
-                filteredChores.map((chore, index) => (
+              {filteredExpenses.length > 0 ? (
+                filteredExpenses.map((expense, index) => (
                   <Card
-                    key={chore.id}
-                    className={cn(
-                      "transition-all duration-300 hover:shadow-lg animate-bounce-in",
-                      chore.completed && "opacity-75",
-                      !chore.completed &&
-                        isOverdue(chore.dueDate) &&
-                        "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10",
-                    )}
+                    key={expense.id}
+                    className="transition-all duration-300 hover:shadow-lg animate-bounce-in"
                     style={{ animationDelay: `${0.1 * (index + 1)}s` }}
                   >
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between">
                         <div className="flex items-start gap-4 flex-1">
-                          {/* Completion Button */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleCompleteChore(chore.id)}
-                            className={cn(
-                              "mt-1 p-1 h-8 w-8 rounded-full transition-all duration-200",
-                              chore.completed
-                                ? "bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900 dark:text-green-400"
-                                : "hover:bg-muted border-2 border-dashed border-gray-300 hover:border-green-400",
-                              !canMarkComplete(chore) && "opacity-50 cursor-not-allowed",
-                            )}
-                            disabled={!canMarkComplete(chore)}
-                            title={
-                              canMarkComplete(chore)
-                                ? chore.completed
-                                  ? "Mark as incomplete"
-                                  : "Mark as complete"
-                                : "Only assigned user or admin can mark complete"
-                            }
-                          >
-                            <CheckCircle className={cn("w-4 h-4", chore.completed && "fill-current")} />
-                          </Button>
+                          <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+                            <Receipt className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          </div>
 
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-2">
-                              <h3
-                                className={cn(
-                                  "text-lg font-semibold",
-                                  chore.completed && "line-through text-muted-foreground",
-                                )}
-                              >
-                                {chore.title}
-                              </h3>
-                              <Badge
-                                variant={
-                                  chore.priority === "high"
-                                    ? "destructive"
-                                    : chore.priority === "medium"
-                                      ? "default"
-                                      : "secondary"
-                                }
-                              >
-                                {chore.priority}
+                              <h3 className="text-lg font-semibold">{expense.title}</h3>
+                              <Badge variant="outline">{expense.category}</Badge>
+                              <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                ${expense.amount.toFixed(2)}
                               </Badge>
-                              <Badge variant="outline">{chore.category}</Badge>
-                              {chore.isRecurring && (
-                                <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                                  <Repeat className="w-3 h-3 mr-1" />
-                                  Recurring
-                                </Badge>
-                              )}
-                              {chore.completed && (
-                                <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                  ✅ Completed
-                                </Badge>
-                              )}
-                              {!chore.completed && isOverdue(chore.dueDate) && (
-                                <Badge variant="destructive" className="animate-pulse">
-                                  <AlertTriangle className="w-3 h-3 mr-1" />
-                                  Overdue
-                                </Badge>
-                              )}
                             </div>
 
-                            {chore.description && <p className="text-muted-foreground mb-3">{chore.description}</p>}
+                            {expense.description && <p className="text-muted-foreground mb-3">{expense.description}</p>}
 
                             <div className="space-y-2">
                               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                                 <div className="flex items-center gap-1">
                                   <User className="w-4 h-4" />
-                                  <span>Assigned to: {getUserName(chore.assignedTo)}</span>
+                                  <span>Paid by: {getUserName(expense.paidBy)}</span>
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <CalendarIcon className="w-4 h-4" />
-                                  <span
-                                    className={cn(
-                                      !chore.completed &&
-                                        isOverdue(chore.dueDate) &&
-                                        "text-red-600 dark:text-red-400 font-medium",
-                                    )}
-                                  >
-                                    Due: {new Date(chore.dueDate).toLocaleDateString()}
-                                  </span>
+                                  <span>Date: {new Date(expense.date).toLocaleDateString()}</span>
                                 </div>
-                                {chore.completed && chore.completedAt && (
-                                  <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                    <CheckCircle className="w-4 h-4" />
-                                    <span>Completed: {new Date(chore.completedAt).toLocaleDateString()}</span>
-                                  </div>
-                                )}
                               </div>
 
-                              {/* Recurring Info */}
-                              {chore.isRecurring && (
-                                <div className="flex items-center gap-4 text-sm text-purple-600 dark:text-purple-400">
-                                  <div className="flex items-center gap-1">
-                                    <Clock className="w-4 h-4" />
-                                    <span>
-                                      Repeats: {chore.recurringType}
-                                      {chore.recurringInterval &&
-                                        chore.recurringInterval > 1 &&
-                                        ` (every ${chore.recurringInterval})`}
-                                    </span>
-                                  </div>
-                                  {chore.nextDueDate && chore.completed && (
-                                    <div className="flex items-center gap-1">
-                                      <CalendarIcon className="w-4 h-4" />
-                                      <span>Next: {new Date(chore.nextDueDate).toLocaleDateString()}</span>
-                                    </div>
-                                  )}
+                              {expense.splitBetween && expense.splitBetween.length > 1 && (
+                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                  <span>Split between: {expense.splitBetween.map(getUserName).join(", ")}</span>
                                 </div>
                               )}
                             </div>
-
-                            {!canMarkComplete(chore) && !chore.completed && (
-                              <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded-md border border-yellow-200 dark:border-yellow-800">
-                                <p className="text-xs text-yellow-700 dark:text-yellow-300 flex items-center gap-1">
-                                  <AlertTriangle className="w-3 h-3" />
-                                  Only {getUserName(chore.assignedTo)} or an admin can mark this as complete
-                                </p>
-                              </div>
-                            )}
                           </div>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {(user.isAdmin || chore.assignedTo === user.id) && (
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="ghost" size="sm" onClick={() => setEditingChore(chore)}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="sm:max-w-[500px]">
-                                <DialogHeader>
-                                  <DialogTitle>Edit Chore</DialogTitle>
-                                  <DialogDescription>Update the chore details.</DialogDescription>
-                                </DialogHeader>
-                                {editingChore && (
-                                  <div className="space-y-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-title">Title *</Label>
-                                      <Input
-                                        id="edit-title"
-                                        value={editingChore.title}
-                                        onChange={(e) => setEditingChore({ ...editingChore, title: e.target.value })}
-                                      />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-description">Description</Label>
-                                      <Textarea
-                                        id="edit-description"
-                                        value={editingChore.description}
-                                        onChange={(e) =>
-                                          setEditingChore({ ...editingChore, description: e.target.value })
-                                        }
-                                      />
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <div className="space-y-2">
-                                        <Label>Assign To *</Label>
-                                        <Select
-                                          value={editingChore.assignedTo}
-                                          onValueChange={(value) =>
-                                            setEditingChore({ ...editingChore, assignedTo: value })
-                                          }
-                                        >
-                                          <SelectTrigger>
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {data.users.map((user: any) => (
-                                              <SelectItem key={user.id} value={user.id}>
-                                                {user.name}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-
-                                      <div className="space-y-2">
-                                        <Label>Priority</Label>
-                                        <Select
-                                          value={editingChore.priority}
-                                          onValueChange={(value: "low" | "medium" | "high") =>
-                                            setEditingChore({ ...editingChore, priority: value })
-                                          }
-                                        >
-                                          <SelectTrigger>
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="low">Low</SelectItem>
-                                            <SelectItem value="medium">Medium</SelectItem>
-                                            <SelectItem value="high">High</SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <div className="space-y-2">
-                                        <Label>Due Date</Label>
-                                        <Popover>
-                                          <PopoverTrigger asChild>
-                                            <Button
-                                              variant="outline"
-                                              className={cn(
-                                                "w-full justify-start text-left font-normal",
-                                                !editingChore.dueDate && "text-muted-foreground",
-                                              )}
-                                            >
-                                              <CalendarIcon className="mr-2 h-4 w-4" />
-                                              {editingChore.dueDate ? (
-                                                format(new Date(editingChore.dueDate), "PPP")
-                                              ) : (
-                                                <span>Pick a date</span>
-                                              )}
-                                            </Button>
-                                          </PopoverTrigger>
-                                          <PopoverContent className="w-auto p-0">
-                                            <Calendar
-                                              mode="single"
-                                              selected={new Date(editingChore.dueDate)}
-                                              onSelect={(date) =>
-                                                date &&
-                                                setEditingChore({ ...editingChore, dueDate: date.toISOString() })
-                                              }
-                                              initialFocus
-                                            />
-                                          </PopoverContent>
-                                        </Popover>
-                                      </div>
-
-                                      <div className="space-y-2">
-                                        <Label>Category</Label>
-                                        <Select
-                                          value={editingChore.category}
-                                          onValueChange={(value) =>
-                                            setEditingChore({ ...editingChore, category: value })
-                                          }
-                                        >
-                                          <SelectTrigger>
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="general">General</SelectItem>
-                                            <SelectItem value="kitchen">Kitchen</SelectItem>
-                                            <SelectItem value="bathroom">Bathroom</SelectItem>
-                                            <SelectItem value="living-room">Living Room</SelectItem>
-                                            <SelectItem value="bedroom">Bedroom</SelectItem>
-                                            <SelectItem value="outdoor">Outdoor</SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex gap-2 pt-4">
-                                      <Button onClick={handleEditChore} className="flex-1">
-                                        Update Chore
-                                      </Button>
-                                      <Button variant="outline" onClick={() => setEditingChore(null)}>
-                                        Cancel
-                                      </Button>
-                                    </div>
-                                  </div>
-                                )}
-                              </DialogContent>
-                            </Dialog>
-                          )}
-
                           {user.isAdmin && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteChore(chore.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            <>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="ghost" size="sm" onClick={() => setEditingExpense(expense)}>
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[500px]">
+                                  <DialogHeader>
+                                    <DialogTitle>Edit Expense</DialogTitle>
+                                    <DialogDescription>Update the expense details.</DialogDescription>
+                                  </DialogHeader>
+                                  {editingExpense && (
+                                    <div className="space-y-4">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="edit-title">Title *</Label>
+                                        <Input
+                                          id="edit-title"
+                                          value={editingExpense.title}
+                                          onChange={(e) =>
+                                            setEditingExpense({ ...editingExpense, title: e.target.value })
+                                          }
+                                        />
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        <Label htmlFor="edit-amount">Amount *</Label>
+                                        <Input
+                                          id="edit-amount"
+                                          type="number"
+                                          step="0.01"
+                                          value={editingExpense.amount}
+                                          onChange={(e) =>
+                                            setEditingExpense({
+                                              ...editingExpense,
+                                              amount: Number.parseFloat(e.target.value) || 0,
+                                            })
+                                          }
+                                        />
+                                      </div>
+
+                                      <div className="flex gap-2 pt-4">
+                                        <Button onClick={handleEditExpense} className="flex-1">
+                                          Update Expense
+                                        </Button>
+                                        <Button variant="outline" onClick={() => setEditingExpense(null)}>
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </DialogContent>
+                              </Dialog>
+
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteExpense(expense.id)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -978,51 +571,27 @@ export default function ChoresPage() {
               ) : (
                 <Card className="animate-slide-in">
                   <CardContent className="p-12 text-center">
-                    <CheckCircle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-foreground mb-2">No chores found</h3>
+                    <Receipt className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-foreground mb-2">No expenses found</h3>
                     <p className="text-muted-foreground mb-6">
-                      {searchTerm || filterStatus !== "all" || filterPriority !== "all"
+                      {searchTerm || filterCategory !== "all"
                         ? "Try adjusting your filters or search terms"
-                        : "Get started by adding your first household chore"}
+                        : "Get started by adding your first household expense"}
                     </p>
-                    {!searchTerm && filterStatus === "all" && filterPriority === "all" && (
+                    {!searchTerm && filterCategory === "all" && (
                       <Button
                         onClick={() => setIsDialogOpen(true)}
-                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Your First Chore
+                        Add Your First Expense
                       </Button>
                     )}
                   </CardContent>
                 </Card>
               )}
             </div>
-          
-            {/* MongoDB Tasks Section */}
-            <section className="mt-10 border-t pt-8">
-              <h3 className="text-xl font-bold mb-4">External MongoDB Tasks</h3>
-              <form onSubmit={handleMongoSubmit} className="flex gap-2 mb-4">
-                <input
-                  name="taskTitle"
-                  placeholder="Add external task..."
-                  className="border rounded px-3 py-2 w-full"
-                />
-                <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
-                  Add
-                </button>
-              </form>
-
-              <ul className="space-y-2">
-                {externalTasks.map((task, index) => (
-                  <li key={index} className="bg-white dark:bg-gray-800 p-3 rounded shadow text-sm">
-                    ✅ {task.title} — {task.completed ? "Done" : "Pending"}
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-</main>
+          </main>
         </div>
       </div>
     </SessionTimeoutProvider>
